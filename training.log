@@ -1,4 +1,4 @@
-2025-07-24 10:20:07,414 - WARNING - models Name: EA-Net
+2025-07-24 15:00:09,020 - WARNING - models Name: EA-Net
     batch_size: 16
     val_batch_size: 16
     dataset: VimeoSepTuplet
@@ -7,7 +7,7 @@
     train_num: 7014
     val_num: 917
     number_workers: 4
-    epochs: 2000
+    epochs: 251
     loss: 1*L1
     lr: 0.0001
     optimizer: ADAM

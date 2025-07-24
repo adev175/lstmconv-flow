@@ -177,24 +177,42 @@ def train(args, epoch):
     num_batches = 0
     for i, (inputs, groundTrue, edges) in enumerate(train_loader):
         # Prepare input frames
+        batch_start = time.time()
 
+        ## 1. Loading & preprocessing input
+        load_start = time.time()
         I1, I2, I3, I4 = [img.to(device) for img in inputs]  # Input sequence
         gts = [gt.to(device) for gt in groundTrue]  # Ground truth intermediate frames
+        start = time.time()
         edge1, edge2, edge3, edge4 = [edge.to(device) for edge in edges]  # add edge
+        print(f"🕒 Data load/preprocess: {time.time() - load_start:.3f}s")
 
         optimizer.zero_grad()
 
         I1_2 = torch.cat((I1, I2), dim=1)  # Concatenate along the channel dimension
         I3_4 = torch.cat((I3, I4), dim=1)
 
+# ####### EDGE VERSION##############
         edge_I1_2 = torch.cat([edge1, edge2], dim=1)
         edge_I3_4 = torch.cat([edge3, edge4], dim=1)
         # Forward pass for input pairs
+        ## 2. Forward model
+        model_start = time.time()
         flow_out = model(I1_2, I3_4, edge_I1_2, edge_I3_4)
+        print(f"🕒 Model forward: {time.time() - model_start:.3f}s")
+####################################
 
-        F_0_1 = flow_out[:, :2, :, :]
-        F_1_0 = flow_out[:, 2:, :, :]
+######## NORMAL VERSION ####
+        # flow_out = model(I1_2, I3_4)
+###########################
 
+        ## 3. Flow splitting
+        flow_split_start = time.time()
+        F_0_1 = flow_out[:, :2]
+        F_1_0 = flow_out[:, 2:]
+        print(f"🕒 Flow split: {time.time() - flow_split_start:.3f}s")
+
+        frame_loss_start = time.time()
         # Initialize lists for all 4 loss components  # CHANGED
         loss_reconstruction_list = []
         loss_perceptual_list = []
@@ -203,9 +221,9 @@ def train(args, epoch):
 
         batch_psnr = 0
         batch_ssim = 0
-
         # Interpolate each intermediate frame
         for t_idx, It_gt in enumerate(gts):
+            frame_start = time.time()
             t = (t_idx + 1) / (len(gts) + 1)
 
             # Simplified coefficient calculation
@@ -252,6 +270,7 @@ def train(args, epoch):
             ssim_score = ssim(Ft_p, It_gt)
             batch_psnr += psnr_score.item()
             batch_ssim += ssim_score.item()
+            print(f"   🕒 Frame {t_idx} total: {time.time() - frame_start:.3f}s")
 
         # Compute total average loss with 4 components  # CHANGED
         avg_total_loss = loss_func.compute_total_loss(
@@ -261,7 +280,16 @@ def train(args, epoch):
             loss_edge_list  # NEW
         )
         avg_total_loss.backward()
+        optimizer.zero_grad()
+        ## 5. Optimizer step
+        optim_start = time.time()
+        # optimizer.zero_grad()
         optimizer.step()
+        print(f"🕒 Optimizer step: {time.time() - optim_start:.3f}s")
+
+        print(f"🕒 Total frame loss calc: {time.time() - frame_loss_start:.3f}s")
+
+
 
         avg_psnr = batch_psnr / len(gts)
         avg_ssim = batch_ssim / len(gts)
@@ -274,7 +302,9 @@ def train(args, epoch):
 
         logging.info(
             f'Epoch [{epoch + 1}/{args.max_epoch}], Step [{i + 1}/{len(train_loader)}], Batch Loss: {avg_total_loss.item():.4f}, Average PSNR: {avg_psnr:.2f}, Average SSIM: {avg_ssim:.3f}')
+        print(f"✅ Batch {i} done. Total time: {time.time() - batch_start:.3f}s")
 
+    ##### BATCH ENDPOINT #####
     # Average metrics over the epoch
     epoch_psnr /= num_batches
     epoch_ssim /= num_batches
@@ -291,7 +321,7 @@ def train(args, epoch):
     logging.warning(
         f"Training Epoch [{epoch + 1}/{args.max_epoch}] completed. Average Loss: {epoch_loss / len(train_loader):.4f}, Average PSNR: {epoch_psnr:.2f}, Average SSIM: {epoch_ssim:.3f}")
     return epoch_loss / len(train_loader), epoch_psnr
-
+    ####### EPOCH ENDPOINT #####
 
 #Test loop
 def test(args, epoch):
