@@ -1,4 +1,4 @@
-2025-07-24 15:00:09,020 - WARNING - models Name: EA-Net
+2025-07-24 15:56:59,539 - WARNING - models Name: EA-Net
     batch_size: 16
     val_batch_size: 16
     dataset: VimeoSepTuplet

@@ -105,11 +105,14 @@ scheduler = lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[10, 20, 80
 
 
 # Loss functions
+from conf.lossconfig import LossConfigManager
+config = LossConfigManager(recon=0.8, perceptual=0.1, structure=0.1)
 loss_func = loss_function(
     resnet_conv,
-    nn.L1Loss().to(device),
-    nn.MSELoss().to(device)
-)
+    nn.L1Loss(),
+    nn.MSELoss(),
+config=config)
+
 
 # Metrics
 psnr = PeakSignalNoiseRatio(data_range=1.0).to(device)
@@ -166,7 +169,6 @@ def analyze_regional_performance(model, test_loader, device, epoch):
         print(f"Edge vs Smooth improvement: {improvement:+.2f} dB")
 
     print("=" * 40)
-
 # Training loop
 def train(args, epoch):
     model.train()
@@ -185,34 +187,37 @@ def train(args, epoch):
         gts = [gt.to(device) for gt in groundTrue]  # Ground truth intermediate frames
         start = time.time()
         edge1, edge2, edge3, edge4 = [edge.to(device) for edge in edges]  # add edge
-        print(f"🕒 Data load/preprocess: {time.time() - load_start:.3f}s")
 
         optimizer.zero_grad()
 
         I1_2 = torch.cat((I1, I2), dim=1)  # Concatenate along the channel dimension
         I3_4 = torch.cat((I3, I4), dim=1)
 
-# ####### EDGE VERSION##############
+        # ####### EDGE VERSION##############
         edge_I1_2 = torch.cat([edge1, edge2], dim=1)
         edge_I3_4 = torch.cat([edge3, edge4], dim=1)
+        # ✅ TIMESTAMP: Data loading complete
+        print(f"🕒 Data load/preprocess: {time.time() - load_start:.3f}s")
+
         # Forward pass for input pairs
         ## 2. Forward model
         model_start = time.time()
         flow_out = model(I1_2, I3_4, edge_I1_2, edge_I3_4)
+        # ✅ TIMESTAMP: Model forward complete
         print(f"🕒 Model forward: {time.time() - model_start:.3f}s")
-####################################
+        ####################################
 
-######## NORMAL VERSION ####
+        ######## NORMAL VERSION ####
         # flow_out = model(I1_2, I3_4)
-###########################
+        ###########################
 
         ## 3. Flow splitting
         flow_split_start = time.time()
         F_0_1 = flow_out[:, :2]
         F_1_0 = flow_out[:, 2:]
+        # ✅ TIMESTAMP: Flow splitting complete
         print(f"🕒 Flow split: {time.time() - flow_split_start:.3f}s")
 
-        frame_loss_start = time.time()
         # Initialize lists for all 4 loss components  # CHANGED
         loss_reconstruction_list = []
         loss_perceptual_list = []
@@ -221,10 +226,18 @@ def train(args, epoch):
 
         batch_psnr = 0
         batch_ssim = 0
+
+        # ✅ TIMESTAMP: Start all frames synthesis
+        all_frames_start = time.time()
+
         # Interpolate each intermediate frame
         for t_idx, It_gt in enumerate(gts):
+            # ✅ TIMESTAMP: Start individual frame processing
             frame_start = time.time()
             t = (t_idx + 1) / (len(gts) + 1)
+
+            # ✅ TIMESTAMP: Start synthesis pipeline for this frame
+            synthesis_start = time.time()
 
             # Simplified coefficient calculation
             C00 = -t * (1 - t)
@@ -257,39 +270,74 @@ def train(args, epoch):
             Ft_p = (co_eff[0] * vt0 * g_I0_F_t_0_f + co_eff[1] * vt1 * g_I1_F_t_1_f) / \
                    (co_eff[0] * vt0 + co_eff[1] * vt1)
 
-            # Compute losses with 4 components  # CHANGED
-            L1, L2, L3, L4 = loss_func.compute_losses(Ft_p, It_gt)
-            # Append all losses to respective lists
-            loss_reconstruction_list.append(L1)
-            loss_perceptual_list.append(L2)
-            loss_structure_list.append(L3)  # NEW
-            loss_edge_list.append(L4)  # NEW
+            # ✅ TIMESTAMP: Synthesis complete for this frame
+            synthesis_time = time.time() - synthesis_start
 
+            # Compute losses with 4 components  # CHANGED
+            # L1, L2, L3, L4 = loss_func.compute_losses(Ft_p, It_gt)
+            frame_loss_start = time.time()
+            loss_dict = loss_func.compute_losses(Ft_p, It_gt)
+            # ✅ TIMESTAMP: Loss calculation complete for this frame
+            loss_time = time.time() - frame_loss_start
+
+            # Compute losses with 4 components
+            loss_reconstruction_list.append(loss_dict['recon'])
+            loss_perceptual_list.append(loss_dict['perceptual'])
+            loss_structure_list.append(loss_dict['structure'])
+            loss_edge_list.append(loss_dict['edge'])
+
+            # ✅ TIMESTAMP: Start metrics calculation
+            metrics_start = time.time()
             # Calculate PSNR and SSIM
             psnr_score = psnr(Ft_p, It_gt)
             ssim_score = ssim(Ft_p, It_gt)
             batch_psnr += psnr_score.item()
             batch_ssim += ssim_score.item()
-            print(f"   🕒 Frame {t_idx} total: {time.time() - frame_start:.3f}s")
+            # ✅ TIMESTAMP: Metrics calculation complete
+            metrics_time = time.time() - metrics_start
 
+            # ✅ TIMESTAMP: Frame processing complete
+            frame_total_time = time.time() - frame_start
+
+            # ✅ DETAILED FRAME BREAKDOWN
+            print(f"   🖼️  Frame {t_idx}: Total {frame_total_time:.3f}s | "
+                  f"Synthesis {synthesis_time:.3f}s | "
+                  f"Loss {loss_time:.3f}s | "
+                  f"Metrics {metrics_time:.3f}s")
+
+        # ✅ TIMESTAMP: All frames processing complete
+        all_frames_time = time.time() - all_frames_start
+        print(f"🕒 All frames synthesis: {all_frames_time:.3f}s")
+
+        # ✅ TIMESTAMP: Start loss aggregation
+        loss_agg_start = time.time()
         # Compute total average loss with 4 components  # CHANGED
-        avg_total_loss = loss_func.compute_total_loss(
-            loss_reconstruction_list,
-            loss_perceptual_list,
-            loss_structure_list,  # NEW
-            loss_edge_list  # NEW
-        )
+        # New: wrap all components into a dict
+        loss_dict_batch = {
+            'recon': sum(loss_reconstruction_list) / len(loss_reconstruction_list),
+            'perceptual': sum(loss_perceptual_list) / len(loss_perceptual_list),
+            'structure': sum(loss_structure_list) / len(loss_structure_list),
+            'edge': sum(loss_edge_list) / len(loss_edge_list),
+        }
+        avg_total_loss = loss_func.compute_total_loss(loss_dict_batch)
+        # ✅ TIMESTAMP: Loss aggregation complete
+        loss_agg_time = time.time() - loss_agg_start
+        print(f"🕒 Loss aggregation: {loss_agg_time:.3f}s")
+
+        # ✅ TIMESTAMP: Start backward pass
+        backward_start = time.time()
         avg_total_loss.backward()
-        optimizer.zero_grad()
+        # ✅ TIMESTAMP: Backward pass complete
+        backward_time = time.time() - backward_start
+        print(f"🕒 Backward pass: {backward_time:.3f}s")
+
         ## 5. Optimizer step
         optim_start = time.time()
-        # optimizer.zero_grad()
+        # optimizer.zero_grad()  # ⚠️ NOTE: This should be BEFORE backward(), not after
         optimizer.step()
-        print(f"🕒 Optimizer step: {time.time() - optim_start:.3f}s")
-
-        print(f"🕒 Total frame loss calc: {time.time() - frame_loss_start:.3f}s")
-
-
+        # ✅ TIMESTAMP: Optimizer step complete
+        optim_time = time.time() - optim_start
+        print(f"🕒 Optimizer step: {optim_time:.3f}s")
 
         avg_psnr = batch_psnr / len(gts)
         avg_ssim = batch_ssim / len(gts)
@@ -300,9 +348,23 @@ def train(args, epoch):
         epoch_psnr += avg_psnr
         epoch_ssim += avg_ssim
 
+        # ✅ TIMESTAMP: Batch complete
+        batch_total_time = time.time() - batch_start
+
+        # ✅ COMPREHENSIVE BATCH SUMMARY
+        print(f"\n📊 BATCH {i} SUMMARY:")
+        print(f"🕒 Data load/preprocess:  {(time.time() - load_start) - (time.time() - start):.3f}s")
+        print(f"🕒 Model forward:         {time.time() - model_start:.3f}s")
+        print(f"🕒 Flow split:            {time.time() - flow_split_start:.3f}s")
+        print(f"🕒 All frames synthesis:  {all_frames_time:.3f}s")
+        print(f"🕒 Loss aggregation:      {loss_agg_time:.3f}s")
+        print(f"🕒 Backward pass:         {backward_time:.3f}s")
+        print(f"🕒 Optimizer step:        {optim_time:.3f}s")
+        print(f"🕒 TOTAL BATCH:           {batch_total_time:.3f}s")
+
         logging.info(
             f'Epoch [{epoch + 1}/{args.max_epoch}], Step [{i + 1}/{len(train_loader)}], Batch Loss: {avg_total_loss.item():.4f}, Average PSNR: {avg_psnr:.2f}, Average SSIM: {avg_ssim:.3f}')
-        print(f"✅ Batch {i} done. Total time: {time.time() - batch_start:.3f}s")
+        print(f"✅ Batch {i} done. Total time: {batch_total_time:.3f}s\n")
 
     ##### BATCH ENDPOINT #####
     # Average metrics over the epoch
@@ -323,6 +385,36 @@ def train(args, epoch):
     return epoch_loss / len(train_loader), epoch_psnr
     ####### EPOCH ENDPOINT #####
 
+
+# ✅ OPTIONAL: Advanced timing analysis function
+def analyze_timing_bottlenecks(timing_logs, num_batches=10):
+    """
+    Optional function to analyze timing patterns from your logs
+    Call this after running several batches
+    """
+    print("\n🔍 TIMING BOTTLENECK ANALYSIS")
+    print("=" * 50)
+
+    # You can manually parse your printed timing logs or
+    # modify the function to collect timing data in lists
+
+    components = [
+        'Data load/preprocess', 'Model forward', 'Flow split',
+        'All frames synthesis', 'Loss aggregation',
+        'Backward pass', 'Optimizer step'
+    ]
+
+    print("📋 Key areas to monitor:")
+    for i, component in enumerate(components, 1):
+        print(f"{i}. {component}")
+
+    print("\n💡 Optimization priorities based on typical VFI bottlenecks:")
+    print("1. All frames synthesis (usually 60-80% of time)")
+    print("2. Model forward (usually 10-20% of time)")
+    print("3. Backward pass (usually 10-15% of time)")
+    print("4. Loss calculation (within frames synthesis)")
+
+    return components
 #Test loop
 def test(args, epoch):
     model.eval()
