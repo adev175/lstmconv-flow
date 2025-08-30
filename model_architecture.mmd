@@ -1,0 +1,119 @@
+```mermaid
+graph TB
+    subgraph "FlowPredictionNet - Main Architecture"
+        Input[Input: I0, I1<br/>Shape: (B,C,H,W)]
+        
+        subgraph "Encoder Path"
+            Seq[Stack Frames<br/>Shape: (B,T=2,C,H,W)]
+            
+            subgraph "EncodingBlock1"
+                E1_LSTM[HybridBlock<br/>GatedConvLSTM + LocalAttention]
+                E1_BN1[BatchNorm2d]
+                E1_Conv[Conv2d]
+                E1_Pool[MaxPool2d<br/>↓ 2x]
+                E1_Res1[Residual Output]
+            end
+            
+            subgraph "EncodingBlock2"
+                E2_LSTM[HybridBlock]
+                E2_BN1[BatchNorm2d]
+                E2_Conv[Conv2d]
+                E2_Pool[MaxPool2d<br/>↓ 2x]
+                E2_Res2[Residual Output]
+            end
+            
+            subgraph "EncodingBlock3"
+                E3_LSTM[HybridBlock]
+                E3_BN1[BatchNorm2d]
+                E3_Conv[Conv2d]
+                E3_Pool[MaxPool2d<br/>↓ 2x]
+                E3_Res3[Residual Output]
+            end
+        end
+        
+        subgraph "Decoder Path"
+            subgraph "DecodingBlock1"
+                D1_Up[Upsample<br/>↑ 2x]
+                D1_Conv1[Conv2d]
+                D1_Add1[+ Residual<br/>🔄 SKIP CONNECTION]
+                D1_BN1[BatchNorm2d + ReLU]
+                D1_Conv2[Conv2d]
+                D1_BN2[BatchNorm2d + ReLU]
+            end
+            
+            subgraph "DecodingBlock2"
+                D2_Up[Upsample<br/>↑ 2x]
+                D2_Conv1[Conv2d]
+                D2_Add1[+ Residual<br/>🔄 SKIP CONNECTION]
+                D2_BN1[BatchNorm2d + ReLU]
+                D2_Conv2[Conv2d]
+                D2_BN2[BatchNorm2d + ReLU]
+            end
+            
+            subgraph "DecodingBlock3"
+                D3_Up[Upsample<br/>↑ 2x]
+                D3_Conv1[Conv2d]
+                D3_Add1[+ Residual<br/>🔄 SKIP CONNECTION]
+                D3_BN1[BatchNorm2d + ReLU]
+                D3_Conv2[Conv2d]
+                D3_BN2[BatchNorm2d + ReLU]
+            end
+        end
+        
+        Output[Final Conv2d<br/>Output: (B, 4, H, W)<br/>F_0_1, F_1_0 Flow]
+    end
+    
+    subgraph "Core Components Detail"
+        subgraph "HybridBlock"
+            LSTM[GatedConvLSTM<br/>Temporal Processing]
+            Attn[LocalAttention<br/>Spatial Attention]
+            LSTM --> Attn
+        end
+        
+        subgraph "GatedConvLSTM Gates"
+            FG[Forget Gate<br/>Conv2d + Sigmoid]
+            IG[Input Gate<br/>Conv2d + Sigmoid]
+            OG[Output Gate<br/>Conv2d + Sigmoid]
+            CG[Cell Gate<br/>Conv2d + Tanh]
+        end
+        
+        subgraph "Residual Blocks Available"
+            RB[ResNetBlock<br/>🔄 Classic Residual<br/>out += identity]
+            AB[AttentionBlock<br/>🔄 Residual Attention<br/>output + input]
+        end
+    end
+    
+    %% Flow connections
+    Input --> Seq
+    Seq --> E1_LSTM
+    E1_LSTM --> E1_BN1 --> E1_Conv --> E1_Res1
+    E1_Conv --> E1_Pool --> E2_LSTM
+    
+    E2_LSTM --> E2_BN1 --> E2_Conv --> E2_Res2
+    E2_Conv --> E2_Pool --> E3_LSTM
+    
+    E3_LSTM --> E3_BN1 --> E3_Conv --> E3_Res3
+    E3_Conv --> E3_Pool --> D1_Up
+    
+    %% Decoder flow
+    D1_Up --> D1_Conv1 --> D1_Add1
+    E3_Res3 --> D1_Add1
+    D1_Add1 --> D1_BN1 --> D1_Conv2 --> D1_BN2 --> D2_Up
+    
+    D2_Up --> D2_Conv1 --> D2_Add1
+    E2_Res2 --> D2_Add1
+    D2_Add1 --> D2_BN1 --> D2_Conv2 --> D2_BN2 --> D3_Up
+    
+    D3_Up --> D3_Conv1 --> D3_Add1
+    E1_Res1 --> D3_Add1
+    D3_Add1 --> D3_BN1 --> D3_Conv2 --> D3_BN2 --> Output
+    
+    %% Styling
+    classDef residual fill:#ffcccc,stroke:#ff0000,stroke-width:3px
+    classDef lstm fill:#ccffcc,stroke:#00ff00,stroke-width:2px
+    classDef attention fill:#ccccff,stroke:#0000ff,stroke-width:2px
+    
+    class E1_Res1,E2_Res2,E3_Res3,D1_Add1,D2_Add1,D3_Add1,RB,AB residual
+    class E1_LSTM,E2_LSTM,E3_LSTM,LSTM lstm
+    class Attn,AB attention
+```

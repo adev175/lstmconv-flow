@@ -1,0 +1,109 @@
+```mermaid
+graph LR
+    subgraph "Component Dependencies"
+        subgraph "Core Components"
+            GC[GatedConvLSTM<br/>🧠 Temporal Processing]
+            LA[LocalAttention<br/>👁️ Spatial Attention]
+            HB[HybridBlock<br/>🔗 LSTM + Attention]
+            
+            GC --> HB
+            LA --> HB
+        end
+        
+        subgraph "Building Blocks"
+            EB[EncodingBlock<br/>📉 Encoder]
+            DB[DecodingBlock<br/>📈 Decoder]
+            
+            HB --> EB
+        end
+        
+        subgraph "Residual Components"
+            RB[ResNetBlock<br/>🔄 Classic Residual]
+            AB[AttentionBlock<br/>🔄 Residual Attention]
+            CA[ChannelAttention<br/>📊 Channel-wise]
+            SA[SpatialAttention<br/>🗺️ Spatial-wise]
+            
+            CA --> AB
+            SA --> AB
+        end
+        
+        subgraph "Main Network"
+            FPN[FlowPredictionNet<br/>🎯 Main Network]
+            
+            EB --> FPN
+            DB --> FPN
+        end
+    end
+    
+    subgraph "Residual Connection Types"
+        subgraph "Type 1: Classic Residual"
+            RB_Detail[ResNetBlock<br/>Input → Conv → BN → ReLU → Conv → BN<br/>↓<br/>Output = Input + Processed]
+        end
+        
+        subgraph "Type 2: Skip Connections"
+            Skip_Detail[DecodingBlock<br/>Encoder_Residual ----🔄---→ Decoder<br/>Output = Upsampled + Encoder_Residual]
+        end
+        
+        subgraph "Type 3: Attention Residual"
+            Attn_Detail[AttentionBlock<br/>Input → Conv → Channel_Attn → Spatial_Attn<br/>↓<br/>Output = Input + Processed]
+        end
+        
+        subgraph "Type 4: Gating (Not Residual)"
+            Gate_Detail[LocalAttention<br/>Input → Conv → Sigmoid<br/>↓<br/>Output = Input * Attention_Weights]
+        end
+    end
+    
+    subgraph "Processing Flow"
+        direction TB
+        Input_Frames[Input: I0, I1]
+        
+        subgraph "Encoder Stages"
+            E1[Encoder1<br/>H×W → H/2×W/2]
+            E2[Encoder2<br/>H/2×W/2 → H/4×W/4]
+            E3[Encoder3<br/>H/4×W/4 → H/8×W/8]
+        end
+        
+        subgraph "Decoder Stages"
+            D1[Decoder1<br/>H/8×W/8 → H/4×W/4]
+            D2[Decoder2<br/>H/4×W/4 → H/2×W/2]
+            D3[Decoder3<br/>H/2×W/2 → H×W]
+        end
+        
+        Flow_Output[Optical Flow<br/>F_0_1, F_1_0]
+        
+        Input_Frames --> E1
+        E1 --> E2
+        E2 --> E3
+        E3 --> D1
+        D1 --> D2
+        D2 --> D3
+        D3 --> Flow_Output
+        
+        %% Skip connections
+        E1 -.->|res1 🔄| D3
+        E2 -.->|res2 🔄| D2
+        E3 -.->|res3 🔄| D1
+    end
+    
+    subgraph "LSTM State Management"
+        direction TB
+        T0[Time Step 0<br/>Initialize States]
+        T1[Time Step 1<br/>Update States]
+        State[Hidden & Cell States<br/>Temporal Memory]
+        
+        T0 --> State
+        State --> T1
+        T1 --> State
+    end
+    
+    %% Styling
+    classDef residual fill:#ffdddd,stroke:#ff0000,stroke-width:2px
+    classDef lstm fill:#ddffdd,stroke:#00aa00,stroke-width:2px
+    classDef attention fill:#ddddff,stroke:#0000ff,stroke-width:2px
+    classDef main fill:#fff9dd,stroke:#ff9900,stroke-width:3px
+    
+    class RB,AB,Skip_Detail,RB_Detail,Attn_Detail residual
+    class GC,HB,State,T0,T1 lstm
+    class LA,CA,SA,Gate_Detail attention
+    class FPN,Flow_Output main
+```

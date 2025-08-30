@@ -1,0 +1,74 @@
+```mermaid
+flowchart TD
+    subgraph "LSTMConv Model - Residual Connection Analysis"
+        subgraph "Residual Types Found ✅"
+            R1[🔄 Classic Residual<br/>ResNetBlock<br/>out = input + transformation]
+            R2[🔄 Skip Connections<br/>DecodingBlock<br/>out = upsampled + encoder_residual]
+            R3[🔄 Attention Residual<br/>AttentionBlock<br/>out = input + attention_processed]
+            R4[⚡ Gating Mechanism<br/>LocalAttention<br/>out = input * attention_weights]
+        end
+        
+        subgraph "Model Architecture Summary"
+            direction TB
+            
+            MainNet[FlowPredictionNet<br/>📊 Main Optical Flow Network]
+            
+            subgraph "Encoder Path"
+                Enc1[EncodingBlock 1<br/>📥 Input Processing]
+                Enc2[EncodingBlock 2<br/>🔽 Feature Extraction]
+                Enc3[EncodingBlock 3<br/>🎯 Deep Features]
+            end
+            
+            subgraph "Decoder Path"
+                Dec1[DecodingBlock 1<br/>🔼 Feature Reconstruction]
+                Dec2[DecodingBlock 2<br/>📈 Upsampling]
+                Dec3[DecodingBlock 3<br/>📤 Output Generation]
+            end
+            
+            subgraph "Core Processing Units"
+                LSTM[GatedConvLSTM<br/>🧠 Temporal Memory]
+                Attn[LocalAttention<br/>👁️ Spatial Focus]
+                Hybrid[HybridBlock<br/>🔗 LSTM + Attention]
+            end
+        end
+        
+        subgraph "Data Flow with Residual Connections"
+            Input[Input Frames<br/>I0, I1]
+            
+            %% Encoder flow
+            Input --> Enc1
+            Enc1 -->|res1| Enc2
+            Enc2 -->|res2| Enc3
+            Enc3 -->|res3| Dec1
+            
+            %% Decoder flow with skip connections
+            Dec1 --> Dec2
+            Dec2 --> Dec3
+            Dec3 --> Output[Optical Flow<br/>F_0_1, F_1_0]
+            
+            %% Skip connections (residual)
+            Enc1 -.->|Skip Connection 🔄| Dec3
+            Enc2 -.->|Skip Connection 🔄| Dec2
+            Enc3 -.->|Skip Connection 🔄| Dec1
+        end
+        
+        subgraph "Key Findings 📋"
+            Finding1[✅ ResNetBlock có classic residual:<br/>identity + processed]
+            Finding2[✅ DecodingBlock có skip connections:<br/>encoder_features + decoder_features]
+            Finding3[✅ AttentionBlock có residual attention:<br/>input + attention_output]
+            Finding4[ℹ️ LocalAttention dùng gating:<br/>input * attention_weights]
+            Finding5[📊 Tổng cộng: 3 loại residual connections]
+        end
+    end
+    
+    %% Styling
+    classDef residual fill:#ffe6e6,stroke:#cc0000,stroke-width:3px,color:#000
+    classDef found fill:#e6ffe6,stroke:#00cc00,stroke-width:2px,color:#000
+    classDef info fill:#e6f3ff,stroke:#0066cc,stroke-width:2px,color:#000
+    classDef flow fill:#fff9e6,stroke:#ff9900,stroke-width:2px,color:#000
+    
+    class R1,R2,R3 residual
+    class Finding1,Finding2,Finding3,Finding5 found
+    class Finding4 info
+    class MainNet,Input,Output flow
+```

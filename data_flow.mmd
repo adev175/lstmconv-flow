@@ -1,0 +1,96 @@
+```mermaid
+sequenceDiagram
+    participant Input as Input Frames<br/>(I0, I1)
+    participant Flow as FlowPredictionNet
+    participant Enc1 as EncodingBlock1
+    participant Enc2 as EncodingBlock2
+    participant Enc3 as EncodingBlock3
+    participant Dec1 as DecodingBlock1
+    participant Dec2 as DecodingBlock2
+    participant Dec3 as DecodingBlock3
+    participant LSTM as GatedConvLSTM
+    participant Attn as LocalAttention
+    participant Output as Optical Flow<br/>(F_0_1, F_1_0)
+
+    Note over Input,Output: Data Flow Through LSTMConv Model
+
+    Input->>Flow: I0, I1 frames<br/>(B,C,H,W)
+    Flow->>Flow: Stack frames → (B,T=2,C,H,W)
+    
+    %% Encoder Path
+    Flow->>Enc1: Sequence input
+    
+    Note over Enc1,LSTM: Temporal Processing (Time Steps)
+    Enc1->>LSTM: Process t=0 (first frame)
+    LSTM->>LSTM: Initialize hidden/cell states
+    LSTM->>Attn: LSTM output → Attention
+    Attn->>Enc1: Attended features
+    
+    Enc1->>LSTM: Process t=1 (second frame)
+    LSTM->>LSTM: Update states from t=0
+    LSTM->>Attn: LSTM output → Attention
+    Attn->>Enc1: Final attended features
+    
+    Enc1->>Enc1: BatchNorm + Conv2d
+    Enc1->>Enc1: Store residual (res1)
+    Enc1->>Enc1: MaxPool ↓2x
+    
+    Enc1->>Enc2: Downsampled features
+    
+    Note over Enc2: Similar LSTM temporal processing
+    Enc2->>Enc2: Temporal LSTM + Attention
+    Enc2->>Enc2: BatchNorm + Conv2d
+    Enc2->>Enc2: Store residual (res2)
+    Enc2->>Enc2: MaxPool ↓2x
+    
+    Enc2->>Enc3: Downsampled features
+    
+    Note over Enc3: Deepest encoding level
+    Enc3->>Enc3: Temporal LSTM + Attention
+    Enc3->>Enc3: BatchNorm + Conv2d
+    Enc3->>Enc3: Store residual (res3)
+    Enc3->>Enc3: MaxPool ↓2x
+    
+    %% Decoder Path
+    Enc3->>Dec1: Encoded features
+    
+    Note over Dec1,Dec3: Decoder with Skip Connections
+    Dec1->>Dec1: Upsample ↑2x
+    Dec1->>Dec1: Conv2d
+    Enc3->>Dec1: + residual (res3) 🔄
+    Dec1->>Dec1: BatchNorm + ReLU
+    Dec1->>Dec1: Conv2d + BatchNorm + ReLU
+    
+    Dec1->>Dec2: Upsampled features
+    Dec2->>Dec2: Upsample ↑2x
+    Dec2->>Dec2: Conv2d
+    Enc2->>Dec2: + residual (res2) 🔄
+    Dec2->>Dec2: BatchNorm + ReLU
+    Dec2->>Dec2: Conv2d + BatchNorm + ReLU
+    
+    Dec2->>Dec3: Upsampled features
+    Dec3->>Dec3: Upsample ↑2x
+    Dec3->>Dec3: Conv2d
+    Enc1->>Dec3: + residual (res1) 🔄
+    Dec3->>Dec3: BatchNorm + ReLU
+    Dec3->>Dec3: Conv2d + BatchNorm + ReLU
+    
+    %% Final prediction
+    Dec3->>Flow: Decoded features
+    Flow->>Flow: Reshape: (B,T,C,H,W) → (B,C*T,H,W)
+    Flow->>Flow: Final Conv2d
+    Flow->>Output: Optical Flow (B,4,H,W)
+    
+    Note over Output: F_0_1: Flow from I0→I1<br/>F_1_0: Flow from I1→I0
+
+    %% Highlight residual connections
+    rect rgb(255, 200, 200)
+        Note over Enc1,Dec3: Residual/Skip Connections
+        Note over Enc1: res1 stored
+        Note over Enc2: res2 stored  
+        Note over Enc3: res3 stored
+        Note over Dec1: + res3 🔄
+        Note over Dec2: + res2 🔄
+        Note over Dec3: + res1 🔄
+    end
+```
