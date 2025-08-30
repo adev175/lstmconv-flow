@@ -1,3 +1,33 @@
 /old_result/
 /checkpoint/
 /logs/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Dataset and data directories
+datasets/
+data/
+
+# Model weights and checkpoints
+*.pth
+*.ckpt
+checkpoints/
+weights/
+
+# TensorBoard and training logs
+runs/
+tensorboard/
